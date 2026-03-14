@@ -7,13 +7,8 @@ const { RpcManager } = require("./rpc");
 /* =========================
    DISCORD OAUTH CONFIG
 ========================= */
-// Change this to your Discord Application / Client ID
 const DISCORD_CLIENT_ID = "1374844549821632533";
-
-// Must also be added in Discord Developer Portal -> OAuth2 -> Redirects
 const DISCORD_REDIRECT_URI = "speccyrpc://auth/callback";
-
-// Using identify is enough for username/avatar/banner via /users/@me
 const DISCORD_SCOPES = ["identify"];
 
 /* =========================
@@ -33,23 +28,78 @@ let isQuitting = false;
 const USER_DATA = app.getPath("userData");
 const WINDOW_STATE_FILE = path.join(USER_DATA, "window-state.json");
 const AUTH_STATE_FILE = path.join(USER_DATA, "discord-auth.json");
+const APP_SETTINGS_FILE = path.join(USER_DATA, "app-settings.json");
 
 const TRAY_ICON_PATH = path.join(__dirname, "renderer", "assets", "tray.png");
 const APP_ICON_PATH = path.join(__dirname, "renderer", "assets", "avatar.ico");
 
-// In-memory PKCE/session state
+/* =========================
+   AUTH SESSION
+========================= */
 let authSession = {
   state: null,
   codeVerifier: null
 };
 
 /* =========================
-   AUTO LAUNCH ON STARTUP
+   APP SETTINGS
 ========================= */
-app.setLoginItemSettings({
-  openAtLogin: true,
-  openAsHidden: false
-});
+const DEFAULT_APP_SETTINGS = {
+  launchOnStartup: false,
+  startHiddenToTray: false
+};
+
+function loadAppSettings() {
+  try {
+    if (fs.existsSync(APP_SETTINGS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(APP_SETTINGS_FILE, "utf8"));
+      return { ...DEFAULT_APP_SETTINGS, ...parsed };
+    }
+  } catch (err) {
+    console.error("Failed to load app settings:", err);
+  }
+
+  return { ...DEFAULT_APP_SETTINGS };
+}
+
+function saveAppSettings(settings) {
+  try {
+    fs.writeFileSync(APP_SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf8");
+  } catch (err) {
+    console.error("Failed to save app settings:", err);
+  }
+}
+
+function applyLoginItemSettings(settings) {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: !!settings.launchOnStartup,
+      openAsHidden: !!settings.startHiddenToTray
+    });
+  } catch (err) {
+    console.error("Failed to apply login item settings:", err);
+  }
+}
+
+function updateAppSettings(patch = {}) {
+  const next = {
+    ...loadAppSettings(),
+    ...patch
+  };
+
+  saveAppSettings(next);
+  applyLoginItemSettings(next);
+  return next;
+}
+
+function wasOpenedAtLogin() {
+  try {
+    const info = app.getLoginItemSettings();
+    return !!info.wasOpenedAtLogin;
+  } catch {
+    return false;
+  }
+}
 
 /* =========================
    WINDOW STATE
@@ -59,15 +109,25 @@ function loadWindowState() {
     if (fs.existsSync(WINDOW_STATE_FILE)) {
       return JSON.parse(fs.readFileSync(WINDOW_STATE_FILE, "utf8"));
     }
-  } catch {}
+  } catch (err) {
+    console.error("Failed to load window state:", err);
+  }
+
   return { width: 750, height: 560 };
 }
 
 function saveWindowState() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
+
   try {
-    fs.writeFileSync(WINDOW_STATE_FILE, JSON.stringify(win.getBounds()));
-  } catch {}
+    fs.writeFileSync(
+      WINDOW_STATE_FILE,
+      JSON.stringify(win.getBounds(), null, 2),
+      "utf8"
+    );
+  } catch (err) {
+    console.error("Failed to save window state:", err);
+  }
 }
 
 /* =========================
@@ -89,12 +149,15 @@ function loadAuth() {
   } catch (err) {
     console.error("Failed to load auth:", err);
   }
+
   return null;
 }
 
 function clearAuth() {
   try {
-    if (fs.existsSync(AUTH_STATE_FILE)) fs.unlinkSync(AUTH_STATE_FILE);
+    if (fs.existsSync(AUTH_STATE_FILE)) {
+      fs.unlinkSync(AUTH_STATE_FILE);
+    }
   } catch (err) {
     console.error("Failed to clear auth:", err);
   }
@@ -151,7 +214,10 @@ function normalizeDiscordUser(user) {
     banner: getBannerUrl(user),
     accentColor: user.accent_color ?? null,
     premiumType: user.premium_type ?? 0,
-    publicFlags: user.public_flags ?? 0
+    publicFlags: user.public_flags ?? 0,
+    avatarDecoration: user.avatar_decoration_data ?? null,
+    nameplate: user.collectibles?.nameplate ?? null,
+    primaryGuild: user.primary_guild ?? null
   };
 }
 
@@ -263,30 +329,27 @@ async function handleOAuthCallback(urlString) {
 }
 
 /* =========================
-   CREATE WINDOW
+   WINDOW
 ========================= */
 function createWindow() {
   const state = loadWindowState();
+  const appSettings = loadAppSettings();
+  const shouldStartHidden = !!appSettings.startHiddenToTray;
 
   win = new BrowserWindow({
     width: state.width || 750,
     height: state.height || 560,
     x: state.x,
     y: state.y,
-
     resizable: false,
     maximizable: false,
     fullscreenable: false,
     useContentSize: true,
-
     frame: false,
     titleBarStyle: "hidden",
-
     backgroundColor: "#0b0b0f",
     icon: APP_ICON_PATH,
-
-    show: true,
-
+    show: !shouldStartHidden,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -324,6 +387,8 @@ function createWindow() {
     if (saved?.user) {
       sendToRenderer("discord:user", saved.user);
     }
+
+    sendToRenderer("app:settings", loadAppSettings());
   });
 }
 
@@ -336,17 +401,60 @@ function createTray() {
 
   const rebuildMenu = () => {
     const connected = rpcManager?.isConnected?.() === true;
+    const settings = loadAppSettings();
 
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: "Show App", click: () => win.show() },
-        { label: "Hide App", click: () => win.hide() },
+        {
+          label: "Show App",
+          click: () => {
+            if (win) {
+              win.show();
+              win.focus();
+            }
+          }
+        },
+        {
+          label: "Hide App",
+          click: () => {
+            if (win) win.hide();
+          }
+        },
+        { type: "separator" },
+        {
+          label: "Launch on Startup",
+          type: "checkbox",
+          checked: !!settings.launchOnStartup,
+          click: (item) => {
+            const updated = updateAppSettings({
+              launchOnStartup: item.checked
+            });
+            sendToRenderer("app:settings", updated);
+            rpcManager?.__rebuildTrayMenu?.();
+          }
+        },
+        {
+          label: "Start Hidden to Tray",
+          type: "checkbox",
+          checked: !!settings.startHiddenToTray,
+          click: (item) => {
+            const updated = updateAppSettings({
+              startHiddenToTray: item.checked
+            });
+            sendToRenderer("app:settings", updated);
+            rpcManager?.__rebuildTrayMenu?.();
+          }
+        },
         { type: "separator" },
         {
           label: "Disconnect RPC",
           enabled: connected,
           click: async () => {
-            try { await rpcManager.stop(); } catch {}
+            try {
+              await rpcManager.stop();
+            } catch (err) {
+              console.error("Failed to stop RPC from tray:", err);
+            }
           }
         },
         { type: "separator" },
@@ -354,9 +462,15 @@ function createTray() {
           label: "Quit",
           click: async () => {
             isQuitting = true;
+
             try {
-              if (connected) await rpcManager.stop();
-            } catch {}
+              if (connected) {
+                await rpcManager.stop();
+              }
+            } catch (err) {
+              console.error("Failed to stop RPC on quit:", err);
+            }
+
             saveWindowState();
             app.quit();
           }
@@ -369,14 +483,21 @@ function createTray() {
 
   tray.on("click", () => {
     if (!win) return;
-    win.isVisible() ? win.hide() : win.show();
+    if (win.isVisible()) {
+      win.hide();
+    } else {
+      win.show();
+      win.focus();
+    }
   });
 
-  rpcManager.__rebuildTrayMenu = rebuildMenu;
+  if (rpcManager) {
+    rpcManager.__rebuildTrayMenu = rebuildMenu;
+  }
 }
 
 /* =========================
-   PROTOCOL REGISTRATION
+   PROTOCOL
 ========================= */
 function registerProtocol() {
   if (process.defaultApp) {
@@ -395,22 +516,41 @@ function registerProtocol() {
 ========================= */
 app.whenReady().then(() => {
   registerProtocol();
+  applyLoginItemSettings(loadAppSettings());
 
   rpcManager = new RpcManager((status) => {
     if (win && !win.isDestroyed()) {
       win.webContents.send("rpc:status", status);
     }
-    rpcManager.__rebuildTrayMenu?.();
+
+    rpcManager?.__rebuildTrayMenu?.();
   });
 
   createWindow();
   createTray();
 });
 
-/* macOS deep link handler */
+/* =========================
+   MAC URL HANDLER
+========================= */
 app.on("open-url", (event, url) => {
   event.preventDefault();
   handleOAuthCallback(url);
+});
+
+/* =========================
+   SECOND INSTANCE
+========================= */
+app.on("second-instance", (_, commandLine) => {
+  if (win) {
+    win.show();
+    win.focus();
+  }
+
+  const deepLink = commandLine.find((arg) => arg.startsWith("speccyrpc://"));
+  if (deepLink) {
+    handleOAuthCallback(deepLink);
+  }
 });
 
 /* =========================
@@ -425,6 +565,20 @@ ipcMain.handle("rpc:stop", () => rpcManager.stop());
 ========================= */
 ipcMain.on("window:hide", () => {
   if (win) win.hide();
+});
+
+/* =========================
+   IPC — APP SETTINGS
+========================= */
+ipcMain.handle("app:get-settings", () => {
+  return loadAppSettings();
+});
+
+ipcMain.handle("app:set-settings", (_, patch) => {
+  const updated = updateAppSettings(patch || {});
+  sendToRenderer("app:settings", updated);
+  rpcManager?.__rebuildTrayMenu?.();
+  return updated;
 });
 
 /* =========================
@@ -444,20 +598,4 @@ ipcMain.handle("discord:get-user", () => {
 ipcMain.handle("discord:logout", () => {
   clearAuth();
   return { ok: true };
-});
-
-/* =========================
-   SECOND INSTANCE
-========================= */
-app.on("second-instance", (_, commandLine) => {
-  if (win) {
-    win.show();
-    win.focus();
-  }
-
-  // Windows deep-link callback comes through commandLine
-  const deepLink = commandLine.find((arg) => arg.startsWith("speccyrpc://"));
-  if (deepLink) {
-    handleOAuthCallback(deepLink);
-  }
 });
