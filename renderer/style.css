@@ -86,13 +86,14 @@ body {
    CUSTOM TITLE BAR
 ========================= */
 .titlebar {
-  height: 28px;
+  height: 32px;
   width: 100%;
-  background: #1e1f22;
+  background: linear-gradient(180deg, #1e1f22 0%, #1a1b1e 100%);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 8px;
+  border-bottom: 1px solid #2b2d31;
   -webkit-app-region: drag;
   user-select: none;
 }
@@ -104,35 +105,55 @@ body {
   color: #b5bac1;
   font-size: 12px;
   font-weight: 500;
+  min-width: 0;
 }
 
 .titlebar-icon {
   width: 14px;
   height: 14px;
+  flex-shrink: 0;
 }
 
 .titlebar-title {
   pointer-events: none;
+  white-space: nowrap;
 }
 
 .titlebar-controls {
   display: flex;
+  align-items: center;
+  gap: 4px;
   height: 100%;
   -webkit-app-region: no-drag;
 }
 
 .title-btn {
-  width: 40px;
-  height: 100%;
+  width: 30px;
+  height: 24px;
   border: none;
   background: transparent;
   color: #b5bac1;
   font-size: 12px;
   cursor: pointer;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.title-btn i {
+  font-size: 13px;
+  pointer-events: none;
 }
 
 .title-btn:hover {
   background: #2b2d31;
+  color: #ffffff;
+}
+
+.title-btn:active {
+  transform: scale(0.96);
 }
 
 .title-btn.close:hover {
@@ -252,7 +273,6 @@ body {
 /* =========================
    Settings Hint
 ========================= */
-
 .settings-scroll-hint {
   width: calc((85% * 2) + 35px);
   max-width: 100%;
@@ -260,7 +280,6 @@ body {
   margin-bottom: 10px;
   margin-left: auto;
   margin-right: auto;
-
   text-align: center;
   color: #9da3af;
   font-size: 12px;

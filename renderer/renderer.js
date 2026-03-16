@@ -756,6 +756,14 @@ $id("close-btn")?.addEventListener("click", () => {
   window.windowControls.hide();
 });
 
+$id("discord-btn")?.addEventListener("click", () => {
+  window.open("https://discord.gg/YOUR_INVITE");
+});
+
+$id("website-btn")?.addEventListener("click", () => {
+  window.open("https://customrpc.xyz");
+});
+
 /* =========================
    RPC STATUS
 ========================= */

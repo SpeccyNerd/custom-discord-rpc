@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Custom Discord RPC</title>
+  <title>Speccy-rpc</title>
   <link rel="stylesheet" href="style.css"/>
 
   <!-- Font Awesome CDN -->
@@ -13,12 +13,22 @@
 
   <div class="titlebar">
     <div class="titlebar-left">
-      <img src="assets/icon.png" class="titlebar-icon" />
-      <span class="titlebar-title">Custom Discord RPC</span>
+      <img src="assets/tray.png" class="titlebar-icon" />
+      <span class="titlebar-title">Speccy-RPC</span>
     </div>
 
-    <div class="titlebar-controls">
+    <div class="titlebar-right">
+
+      <button id="discord-btn" class="title-btn">
+        <i class="fab fa-discord"></i>
+      </button>
+
+      <button id="website-btn" class="title-btn">
+        <i class="fas fa-globe"></i>
+      </button>
+
       <button id="close-btn" class="title-btn close">✕</button>
+
     </div>
   </div>
 
@@ -215,7 +225,7 @@
             </div>
 
             <div class="speech-bubble">
-              Thanks for using Custom Discord RPC
+              Thanks for using Speccy-RPC
               <div class="bubble-tail"></div>
             </div>
 
